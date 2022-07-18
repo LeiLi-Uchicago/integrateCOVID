@@ -1,0 +1,452 @@
+---
+title: "Using joint analysis with multi-modal data: CITE-seq"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+  pdf_document: default
+  knitrBootstrap::bootstrap_document:
+    theme: amelia
+    highlight: sunburst
+    theme.chooser: TRUE
+    highlight.chooser: TRUE
+---
+
+
+```{r setup, include=FALSE}
+options(tinytex.verbose = TRUE)
+knitr::opts_chunk$set(
+  cache = TRUE,
+  cache.lazy = FALSE,
+  tidy = TRUE
+)
+```
+
+# Load packages
+
+```{r results='hide', results='hide', message=FALSE, warning=FALSE, warning=FALSE}
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+```
+
+
+```{r}
+softThreshold <- function(
+  object = NULL,
+  sealing = 10
+) {
+  if(!is.null(object)){
+    # determine the soft threshold.
+    out <- tryCatch(
+      {
+        mito <- object$percent.mt
+        mito <- sort(mito)
+        mito.cut <- mito[floor(length(mito)*0.95)]
+        if(mito.cut > sealing){
+          mito.cut = sealing
+        }
+        return(mito.cut)
+      },
+      error=function(e){
+        stop("There is no percent.mt information in your Seurat object! Please run PercentageFeatureSet function in Seurat, or create your object use createObject function first!")
+        }
+      )
+  } else {
+    stop("Please provide Seurat object!")
+  }
+}
+```
+
+# Data can be downloaded from https://data.mendeley.com/datasets/3jdywv5jrv/3 
+# original paper: https://www.sciencedirect.com/science/article/pii/S1074761321001989
+
+
+# Step 1 Load data from 10X folder (Haley & Chris Dataset, 32 subjests)
+```{r results='hide', results='hide', message=FALSE, warning=FALSE, warning=FALSE}
+R125.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/R125")
+R3.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/R3")
+R478910.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/R478910")
+R6.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/R6")
+S116.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S116")
+S130.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S130")
+S144.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S144")
+S155.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S155")
+S166.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S166")
+S171.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S171")
+S20.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S20")
+S201.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S201")
+S218.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S218")
+S266.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S266")
+S281.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S281")
+S376.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S376")
+S407.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S407")
+S50.data <- Read10X(data.dir = "Gene Expression and Antibody Capture/S50")
+```
+
+
+```{r}
+R125 <- CreateSeuratObject(counts = R125.data[[1]], project = "R125")
+R3 <- CreateSeuratObject(counts = R3.data[[1]], project = "R3")
+R478910 <- CreateSeuratObject(counts = R478910.data[[1]], project = "R478910")
+R6 <- CreateSeuratObject(counts = R6.data[[1]], project = "R6")
+S116 <- CreateSeuratObject(counts = S116.data[[1]], project = "S116")
+S130 <- CreateSeuratObject(counts = S130.data[[1]], project = "S130")
+S144 <- CreateSeuratObject(counts = S144.data[[1]], project = "S144")
+S155 <- CreateSeuratObject(counts = S155.data[[1]], project = "S155")
+S166 <- CreateSeuratObject(counts = S166.data[[1]], project = "S166")
+S171 <- CreateSeuratObject(counts = S171.data[[1]], project = "S171")
+S20 <- CreateSeuratObject(counts = S20.data[[1]], project = "S20")
+S201 <- CreateSeuratObject(counts = S201.data[[1]], project = "S201")
+S218 <- CreateSeuratObject(counts = S218.data[[1]], project = "S218")
+S266 <- CreateSeuratObject(counts = S266.data[[1]], project = "S266")
+S281 <- CreateSeuratObject(counts = S281.data[[1]], project = "S281")
+S376 <- CreateSeuratObject(counts = S376.data[[1]], project = "S376")
+S407 <- CreateSeuratObject(counts = S407.data[[1]], project = "S407")
+S50 <- CreateSeuratObject(counts = S50.data[[1]], project = "S50")
+
+remove(R125.data)
+remove(R3.data)
+remove(R478910.data)
+remove(R6.data)
+remove(S116.data)
+remove(S130.data)
+remove(S144.data)
+remove(S155.data)
+remove(S166.data)
+remove(S171.data)
+remove(S20.data)
+remove(S201.data)
+remove(S218.data)
+remove(S266.data)
+remove(S281.data)
+remove(S376.data)
+remove(S407.data)
+remove(S50.data)
+
+
+# add subject id to cell barcode to avoid any barcode confilict between different subjects
+R125 <- RenameCells(object = R125, add.cell.id = "R125")
+R3 <- RenameCells(object = R3, add.cell.id = "R3")
+R478910 <- RenameCells(object = R478910, add.cell.id = "R478910")
+R6 <- RenameCells(object = R6, add.cell.id = "R6")
+S116 <- RenameCells(object = S116, add.cell.id = "S116")
+S130 <- RenameCells(object = S130, add.cell.id = "S130")
+S144 <- RenameCells(object = S144, add.cell.id = "S144")
+S155 <- RenameCells(object = S155, add.cell.id = "S155")
+S166 <- RenameCells(object = S166, add.cell.id = "S166")
+S171 <- RenameCells(object = S171, add.cell.id = "S171")
+S20 <- RenameCells(object = S20, add.cell.id = "S20")
+S201 <- RenameCells(object = S201, add.cell.id = "S201")
+S218 <- RenameCells(object = S218, add.cell.id = "S218")
+S266 <- RenameCells(object = S266, add.cell.id = "S266")
+S281 <- RenameCells(object = S281, add.cell.id = "S281")
+S376 <- RenameCells(object = S376, add.cell.id = "S376")
+S407 <- RenameCells(object = S407, add.cell.id = "S407")
+S50 <- RenameCells(object = S50, add.cell.id = "S50")
+
+# 17 subjects in batch 1 (add meta info, subject ID, dataset, visist, to data object)
+R125$subject <- "R125"
+R3$subject <- "R3"
+R478910$subject <- "R478910"
+R6$subject <- "R6"
+S116$subject <- "S116"
+S130$subject <- "S130"
+S144$subject <- "S144"
+S155$subject <- "S155"
+S166$subject <- "S166"
+S171$subject <- "S171"
+S20$subject <- "S20"
+S201$subject <- "S201"
+S218$subject <- "S218"
+S266$subject <- "S266"
+S281$subject <- "S281"
+S376$subject <- "S376"
+S407$subject <- "S407"
+S50$subject <- "S50"
+
+R125$dataset <- "Acute"
+R3$dataset <- "Acute"
+R478910$dataset <- "Acute"
+R6$dataset <- "Acute"
+S116$dataset <- "Convalescent"
+S130$dataset <- "Convalescent"
+S144$dataset <- "Convalescent"
+S155$dataset <- "Convalescent"
+S166$dataset <- "Convalescent"
+S171$dataset <- "Convalescent"
+S20$dataset <- "Convalescent"
+S201$dataset <- "Convalescent"
+S218$dataset <- "Convalescent"
+S266$dataset <- "Convalescent"
+S281$dataset <- "Convalescent"
+S376$dataset <- "Convalescent"
+S407$dataset <- "Convalescent"
+S50$dataset <- "Convalescent"
+
+R125$DOS <- "Critical"
+R3$DOS <- "Critical"
+R478910$DOS <- "Critical"
+R6$DOS <- "Critical"
+S116$DOS <- "Moderate"
+S130$DOS <- "Mild"
+S144$DOS <- "Moderate"
+S155$DOS <- "Severe"
+S166$DOS <- "Moderate"
+S171$DOS <- "Severe"
+S20$DOS <- "Severe"
+S201$DOS <- "Severe"
+S218$DOS <- "Severe"
+S266$DOS <- "Mild"
+S281$DOS <- "Mild"
+S376$DOS <- "Mild"
+S407$DOS <- "Moderate"
+S50$DOS <- "Moderate"
+
+R125$Age <- "Unknown"
+R3$Age <- "Unknown"
+R478910$Age <- "Unknown"
+R6$Age <- "Unknown"
+S116$Age <- "50-70"
+S130$Age <- "50-70"
+S144$Age <- "50-70"
+S155$Age <- "36-49"
+S166$Age <- "36-49"
+S171$Age <- "36-49"
+S20$Age <- "20-35"
+S201$Age <- "50-70"
+S218$Age <- "50-70"
+S266$Age <- "20-35"
+S281$Age <- "50-70"
+S376$Age <- "36-49"
+S407$Age <- "20-35"
+S50$Age <- "20-35"
+
+R125[["percent.mt"]] <- PercentageFeatureSet(object = R125, pattern = "^MT-")
+R3[["percent.mt"]] <- PercentageFeatureSet(object = R3, pattern = "^MT-")
+R478910[["percent.mt"]] <- PercentageFeatureSet(object = R478910, pattern = "^MT-")
+R6[["percent.mt"]] <- PercentageFeatureSet(object = R6, pattern = "^MT-")
+S116[["percent.mt"]] <- PercentageFeatureSet(object = S116, pattern = "^MT-")
+S130[["percent.mt"]] <- PercentageFeatureSet(object = S130, pattern = "^MT-")
+S144[["percent.mt"]] <- PercentageFeatureSet(object = S144, pattern = "^MT-")
+S155[["percent.mt"]] <- PercentageFeatureSet(object = S155, pattern = "^MT-")
+S166[["percent.mt"]] <- PercentageFeatureSet(object = S166, pattern = "^MT-")
+S171[["percent.mt"]] <- PercentageFeatureSet(object = S171, pattern = "^MT-")
+S20[["percent.mt"]] <- PercentageFeatureSet(object = S20, pattern = "^MT-")
+S201[["percent.mt"]] <- PercentageFeatureSet(object = S201, pattern = "^MT-")
+S218[["percent.mt"]] <- PercentageFeatureSet(object = S218, pattern = "^MT-")
+S266[["percent.mt"]] <- PercentageFeatureSet(object = S266, pattern = "^MT-")
+S281[["percent.mt"]] <- PercentageFeatureSet(object = S281, pattern = "^MT-")
+S376[["percent.mt"]] <- PercentageFeatureSet(object = S376, pattern = "^MT-")
+S407[["percent.mt"]] <- PercentageFeatureSet(object = S407, pattern = "^MT-")
+S50[["percent.mt"]] <- PercentageFeatureSet(object = S50, pattern = "^MT-")
+
+
+R125[["percent.ig"]] <- PercentageFeatureSet(object = R125, pattern = "^IG[HKL]")
+R3[["percent.ig"]] <- PercentageFeatureSet(object = R3, pattern = "^IG[HKL]")
+R478910[["percent.ig"]] <- PercentageFeatureSet(object = R478910, pattern = "^IG[HKL]")
+R6[["percent.ig"]] <- PercentageFeatureSet(object = R6, pattern = "^IG[HKL]")
+S116[["percent.ig"]] <- PercentageFeatureSet(object = S116, pattern = "^IG[HKL]")
+S130[["percent.ig"]] <- PercentageFeatureSet(object = S130, pattern = "^IG[HKL]")
+S144[["percent.ig"]] <- PercentageFeatureSet(object = S144, pattern = "^IG[HKL]")
+S155[["percent.ig"]] <- PercentageFeatureSet(object = S155, pattern = "^IG[HKL]")
+S166[["percent.ig"]] <- PercentageFeatureSet(object = S166, pattern = "^IG[HKL]")
+S171[["percent.ig"]] <- PercentageFeatureSet(object = S171, pattern = "^IG[HKL]")
+S20[["percent.ig"]] <- PercentageFeatureSet(object = S20, pattern = "^IG[HKL]")
+S201[["percent.ig"]] <- PercentageFeatureSet(object = S201, pattern = "^IG[HKL]")
+S218[["percent.ig"]] <- PercentageFeatureSet(object = S218, pattern = "^IG[HKL]")
+S266[["percent.ig"]] <- PercentageFeatureSet(object = S266, pattern = "^IG[HKL]")
+S281[["percent.ig"]] <- PercentageFeatureSet(object = S281, pattern = "^IG[HKL]")
+S376[["percent.ig"]] <- PercentageFeatureSet(object = S376, pattern = "^IG[HKL]")
+S407[["percent.ig"]] <- PercentageFeatureSet(object = S407, pattern = "^IG[HKL]")
+S50[["percent.ig"]] <- PercentageFeatureSet(object = S50, pattern = "^IG[HKL]")
+```
+
+# Step 3 Pre-process
+###  1) Filter out unwanted cells (we filter out low quality cells according to their gene numbers (nFeature_RNA), and percent of MT transcritps)
+```{r results='hide', message=FALSE, warning=FALSE, fig.width=4, fig.height=17}
+R125 <- subset(R125, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(R125))
+R3 <- subset(R3, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(R3))
+R478910 <- subset(R478910, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(R478910))
+R6 <- subset(R6, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(R6))
+S116 <- subset(S116, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S116))
+S130 <- subset(S130, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S130))
+S144 <- subset(S144, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S144))
+S155 <- subset(S155, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S155))
+S166 <- subset(S166, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S166))
+S171 <- subset(S171, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S171))
+S20 <- subset(S20, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S20))
+S201 <- subset(S201, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S201))
+S218 <- subset(S218, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S218))
+S266 <- subset(S266, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S266))
+S281 <- subset(S281, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S281))
+S376 <- subset(S376, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S376))
+S407 <- subset(S407, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S407))
+S50 <- subset(S50, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < softThreshold(S50))
+```
+
+
+# make all datasets into a list for later data integration
+```{r}
+data.list <- list(R125, R3, R478910, R6, S116, S130, S144, S155, S166, S171, S20, S201, S218, S266, S281, S376, S407, S50)
+```
+
+# some pre-process
+```{r results='hide', message=FALSE, warning=FALSE, fig.width=6, fig.height=3,}
+# pre-process for each subject
+for (i in 1:length(data.list)) {
+    # normalize RNA
+    data.list[[i]] <- NormalizeData(data.list[[i]], verbose = FALSE, assay = 'RNA')
+    # find HVGs for RNA
+    data.list[[i]] <- FindVariableFeatures(data.list[[i]], selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+}
+```
+
+# integrate datasets using Seurat3 anchor method
+```{r results='hide', message=FALSE, warning=FALSE, fig.width=6, fig.height=3}
+# remove batch effects
+anchors <- FindIntegrationAnchors(object.list = data.list, dims = 1:20)
+immune.integrated <- IntegrateData(anchorset = anchors, dims = 1:20)
+```
+
+```{r}
+remove(R125)
+remove(R3)
+remove(R478910)
+remove(R6)
+remove(S116)
+remove(S130)
+remove(S144)
+remove(S155)
+remove(S166)
+remove(S171)
+remove(S20)
+remove(S201)
+remove(S218)
+remove(S266)
+remove(S281)
+remove(S376)
+remove(S407)
+remove(S50)
+remove(data.list)
+```
+
+
+```{r}
+# remove IG genes from HVG list
+HVG_list <- c()
+for (variable in VariableFeatures(object = immune.integrated)) {
+  if (substr(variable, 0, 3) %in%  c('IGH','IGK','IGL')) {
+    cat(variable)
+    cat("\t")
+  } else {
+    HVG_list <- c(HVG_list, variable)
+  }
+}
+```
+
+# Standard scRNA-seq analysis
+```{r results='hide', message=FALSE, fig.height=7,fig.width=13}
+DefaultAssay(object = immune.integrated) <- "integrated"
+# scaling data
+immune.integrated <- ScaleData(object = immune.integrated, verbose = FALSE)
+# PCA
+immune.integrated <- RunPCA(object = immune.integrated, features = HVG_list, verbose = FALSE)
+```
+
+```{r}
+# determine number of PC
+ElbowPlot(immune.integrated,ndims = 50)
+```
+
+```{r}
+# UMAP and clustering
+immune.integrated <- RunUMAP(object = immune.integrated, reduction = "pca", dims = 1:20)
+immune.integrated <- FindNeighbors(object = immune.integrated, reduction = "pca", dims = 1:20)
+immune.integrated <- FindClusters(immune.integrated, resolution = 0.6)
+```
+
+
+# Analysis finished. Then we can make plots
+```{r results='hide', message=FALSE, fig.height=4,fig.width=5}
+# UMAP, color by clusters
+DimPlot(object = immune.integrated, reduction = "umap", label = TRUE,repel = TRUE)
+```
+
+```{r results='hide', message=FALSE, fig.height=4,fig.width=8}
+p1 <- DimPlot(object = immune.integrated, reduction = "umap", group.by = "dataset")
+p2 <- DimPlot(object = immune.integrated, reduction = "umap", group.by = "visit", label = TRUE,repel = TRUE)
+p1
+p2
+```
+
+```{r results='hide', message=FALSE, fig.height=4,fig.width=8}
+p1 <- FeaturePlot(object = immune.integrated, reduction = "umap", features =  c('percent.mt'))
+p2 <- FeaturePlot(object = immune.integrated, reduction = "umap", features = c('percent.ig')) + scale_color_gradient2(low="blue", mid="white", high="red", 
+                        limits = c(0, 10), oob = scales::squish)
+p1
+p2
+```
+
+
+
+# task 1, invetigate gene expression of specific genes
+```{r}
+DefaultAssay(immune.integrated) <- "RNA"
+# for example:
+genes <- c('CD19','BACH2','CD27')
+VlnPlot(immune.integrated, features = genes, assay = 'RNA', slot = 'data')
+FeaturePlot(immune.integrated, features = genes, slot = 'data', order = TRUE)
+```
+# task 2, make heatmap for top DE genes of each cluster
+
+```{r}
+# identify unique gene markers for each cluster, this step takes long time
+# you can skip this step if you loaded the rData I sent
+Idents(immune.integrated) <- 'seurat_clusters'
+DefaultAssay(immune.integrated) <- "RNA"
+immune.integrated <- ScaleData(object = immune.integrated, verbose = FALSE)
+pbmc.markers <- FindAllMarkers(immune.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+pbmc.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+```
+
+```{r results='hide', message=FALSE, fig.height=12,fig.width=8}
+# DE gene heatmap, this step takes long time
+DE_number <- 10
+
+top10 <- pbmc.markers %>% group_by(cluster) %>% top_n(n = DE_number, wt = avg_log2FC)
+DoHeatmap(immune.integrated, features = top10$gene)
+```
+
+# average expression of each cluster
+```{r results='hide', message=FALSE, fig.height=10,fig.width=5}
+Idents(immune.integrated) <- 'seurat_clusters'
+cluster.averages <- AverageExpression(immune.integrated, return.seurat = TRUE, assays = 'RNA')
+DoHeatmap(cluster.averages, features = top10$gene, size = 3, draw.lines = FALSE, angle = 90)
+```
+
+# task 3, Look at certain genes or top DEGs by age and severity
+
+```{r}
+# load package for volcano plot
+library(EnhancedVolcano)
+```
+
+
+```{r results='hide', message=FALSE, fig.height=5,fig.width=5}
+# DE genes between different age group
+Idents(immune.integrated) <- 'Age'
+DefaultAssay(immune.integrated) <- "RNA"
+DEgenes <- FindMarkers(immune.integrated, ident.1 = "20-35", ident.2 = "50-70") # change name here to compare different group
+EnhancedVolcano(DEgenes, lab = rownames(DEgenes), x = 'avg_log2FC', y = 'p_val', pCutoff = 1e-10, FCcutoff = 1, pointSize = 3.0, labSize = 6.0, boxedLabels = TRUE,drawConnectors = TRUE)
+```
+
+```{r results='hide', message=FALSE, fig.height=5,fig.width=5}
+# DE genes between different severity group
+Idents(immune.integrated) <- 'DOS'
+DefaultAssay(immune.integrated) <- "RNA"
+DEgenes <- FindMarkers(immune.integrated, ident.1 = "Moderate", ident.2 = "Critical") # change name here to compare different group
+EnhancedVolcano(DEgenes, lab = rownames(DEgenes), x = 'avg_log2FC', y = 'p_val', pCutoff = 1e-10, FCcutoff = 1, pointSize = 3.0, labSize = 6.0, boxedLabels = TRUE,drawConnectors = TRUE)
+```
